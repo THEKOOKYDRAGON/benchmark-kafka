@@ -4,9 +4,9 @@ on:
   workflow_dispatch: {}
 
 jobs:
-  monkci-remote-cache:
-    name: Monk CI with Remote Cache
-    runs-on: monkci-ubuntu-24.04-4
+  blacksmith-remote-cache:
+    name: blacksmith with Remote Cache
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     defaults:
       run:
         working-directory: upstream
@@ -28,9 +28,9 @@ jobs:
           new-string: "if (true) {"
       - run: ./gradlew --build-cache build -x test
 
-  monkci-cacheless:
-    name: Monk CI Cacheless
-    runs-on: monkci-ubuntu-24.04-4
+  blacksmith-cacheless:
+    name: BlackSMith Cacheless
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     defaults:
       run:
         working-directory: upstream
