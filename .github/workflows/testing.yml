@@ -1,23 +1,171 @@
-name: Custom Testing 
+name: Runner Inventory
+
 on:
-  workflow_dispatch: {}
+  workflow_dispatch:
 
 jobs:
-  blacksmith-cacheless:
-    name: BlackSMith Cacheless
+  inspect:
     runs-on: blacksmith-4vcpu-ubuntu-2404
-    defaults:
-      run:
-        working-directory: upstream
+
     steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: recursive
-      - uses: actions/setup-java@v4
-        with:
-          distribution: "temurin"
-          java-version: "21"
-      - uses: gradle/actions/setup-gradle@d156388eb19639ec20ade50009f3d199ce1e2808 # v4.1.0
-        with:
-          cache-disabled: true
-      - run: ./gradlew build -x test
+      - name: Basic system information
+        run: |
+          echo "===== BASIC INFO ====="
+          whoami
+          id
+          hostname
+          pwd
+          uname -a
+          cat /etc/os-release
+
+      - name: Environment and PATH
+        run: |
+          echo "===== ENVIRONMENT ====="
+          echo "$PATH"
+          echo
+          env | sort
+
+      - name: Tool discovery
+        run: |
+          echo "===== COMMON TOOLS ====="
+          which git || true
+          git --version || true
+
+          which docker || true
+          docker --version || true
+
+          which java || true
+          java --version || true
+
+          which node || true
+          node --version || true
+
+          which python3 || true
+          python3 --version || true
+
+          which go || true
+          go version || true
+
+          which rustc || true
+          rustc --version || true
+
+      - name: Sudo privileges
+        run: |
+          echo "===== SUDO ====="
+          sudo -l || true
+
+      - name: Users and groups
+        run: |
+          echo "===== USERS ====="
+          id
+          groups
+          getent passwd | tail -20 || true
+
+      - name: Filesystem and mounts
+        run: |
+          echo "===== FILESYSTEM ====="
+          df -h
+          echo
+          mount
+          echo
+          lsblk || true
+
+      - name: Memory and CPU
+        run: |
+          echo "===== CPU ====="
+          nproc
+          lscpu || true
+
+          echo
+          echo "===== MEMORY ====="
+          free -h
+
+      - name: Network configuration
+        run: |
+          echo "===== NETWORK ====="
+          ip addr || true
+          echo
+          ip route || true
+          echo
+          cat /etc/resolv.conf || true
+
+      - name: Connectivity tests
+        run: |
+          echo "===== OUTBOUND CONNECTIVITY ====="
+          curl -I --max-time 10 https://github.com || true
+          curl -I --max-time 10 https://google.com || true
+          curl -I --max-time 10 https://api.github.com || true
+
+      - name: Hosts file inspection
+        run: |
+          echo "===== /etc/hosts ====="
+          cat /etc/hosts
+
+      - name: Hosts file modification test
+        run: |
+          echo "===== MODIFY /etc/hosts ====="
+          echo "127.0.0.1 blacksmith-test.local" | sudo tee -a /etc/hosts
+          grep blacksmith-test.local /etc/hosts
+
+      - name: Running processes and services
+        run: |
+          echo "===== PROCESSES ====="
+          ps aux
+
+          echo
+          echo "===== SERVICES ====="
+          systemctl list-units --type=service --state=running || true
+
+      - name: Docker inspection
+        run: |
+          echo "===== DOCKER ====="
+          docker version || true
+          echo
+          docker info || true
+
+      - name: Container capability test
+        run: |
+          echo "===== DOCKER RUN TEST ====="
+          docker run --rm alpine:latest uname -a || true
+
+      - name: Metadata endpoint checks
+        run: |
+          echo "===== CLOUD METADATA ====="
+
+          echo "AWS:"
+          curl -s --connect-timeout 2 http://169.254.169.254/latest/meta-data/ || true
+
+          echo
+          echo "GCP:"
+          curl -s \
+            -H "Metadata-Flavor: Google" \
+            --connect-timeout 2 \
+            http://169.254.169.254/computeMetadata/v1/ || true
+
+          echo
+          echo "Azure:"
+          curl -s \
+            -H Metadata:true \
+            --connect-timeout 2 \
+            "http://169.254.169.254/metadata/instance?api-version=2021-02-01" || true
+
+      - name: Check for potentially interesting environment variables
+        run: |
+          echo "===== ENV VARS OF INTEREST ====="
+          env | grep -Ei \
+            'token|secret|key|credential|aws|azure|gcp|google|github|blacksmith' \
+            || true
+
+      - name: Runner workspace
+        run: |
+          echo "===== WORKSPACE ====="
+          ls -la
+          echo
+          ls -la "$RUNNER_TEMP" || true
+          echo
+          ls -la "$RUNNER_TOOL_CACHE" || true
+
+      - name: Final summary
+        run: |
+          echo "===== SUMMARY ====="
+          echo "Runner complete."
