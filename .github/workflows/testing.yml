@@ -5,7 +5,7 @@ on:
 
 jobs:
   inspect:
-    runs-on: depot-ubuntu-24.04-32
+    runs-on: blacksmith-4vcpu-ubuntu-2404
 
     steps:
       - name: Basic system information
@@ -47,18 +47,78 @@ jobs:
           ls -lah /usr/local/bin/blacksmithd || true
           file /usr/local/bin/blacksmithd || true
 
-      - name: Inspect runner hooks
+      - name: Inspect runner hooks and root filesystem
         run: |
           echo "===== ROOT DIRECTORY ====="
           sudo ls -lah /
 
           echo
+          echo "===== README.md ====="
+          sudo cat /README.md || true
+
+          echo
+          echo "===== CHANGELOG.md ====="
+          sudo cat /CHANGELOG.md || true
+
+          echo
+          echo "===== LICENSE ====="
+          sudo cat /LICENSE || true
+
+          echo
+          echo "===== common_utils.sh ====="
+          sudo sed -n '1,300p' /common_utils.sh || true
+
+          echo
+          echo "===== start_runner.sh ====="
+          sudo sed -n '1,300p' /start_runner.sh || true
+
+          echo
+          echo "===== start_actions_runner.sh ====="
+          sudo sed -n '1,300p' /start_actions_runner.sh || true
+
+          echo
+          echo "===== start_blacksmithd.sh ====="
+          sudo sed -n '1,300p' /start_blacksmithd.sh || true
+
+          echo
+          echo "===== start_sandbox_runner.sh ====="
+          sudo sed -n '1,300p' /start_sandbox_runner.sh || true
+
+          echo
+          echo "===== hostname_setup.sh ====="
+          sudo cat /hostname_setup.sh || true
+
+          echo
+          echo "===== ip_setup.sh ====="
+          sudo cat /ip_setup.sh || true
+
+          echo
+          echo "===== setup_dns.sh ====="
+          sudo cat /setup_dns.sh || true
+
+          echo
+          echo "===== setup_ssh.sh ====="
+          sudo cat /setup_ssh.sh || true
+
+          echo
+          echo "===== mount_docker_dir.sh ====="
+          sudo cat /mount_docker_dir.sh || true
+
+          echo
+          echo "===== report_adoption_and_setup_ssh.sh ====="
+          sudo sed -n '1,300p' /report_adoption_and_setup_ssh.sh || true
+
+          echo
+          echo "===== record_docker_metric.sh ====="
+          sudo cat /record_docker_metric.sh || true
+
+          echo
           echo "===== setup.sh ====="
-          sudo cat /setup.sh || true
+          sudo sed -n '1,500p' /setup.sh || true
 
           echo
           echo "===== job_completed.sh ====="
-          sudo cat /job_completed.sh || true
+          sudo sed -n '1,500p' /job_completed.sh || true
 
       - name: Docker inspection
         run: |
