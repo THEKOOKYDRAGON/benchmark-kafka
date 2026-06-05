@@ -1,6 +1,5 @@
 name: Benchmark
 on:
-  push: {}
   workflow_dispatch: {}
 
 jobs:
