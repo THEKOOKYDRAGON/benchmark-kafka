@@ -10,162 +10,127 @@ jobs:
     steps:
       - name: Basic system information
         run: |
-          echo "===== BASIC INFO ====="
           whoami
           id
           hostname
-          pwd
           uname -a
           cat /etc/os-release
-
-      - name: Environment and PATH
-        run: |
-          echo "===== ENVIRONMENT ====="
-          echo "$PATH"
-          echo
-          env | sort
-
-      - name: Tool discovery
-        run: |
-          echo "===== COMMON TOOLS ====="
-          which git || true
-          git --version || true
-
-          which docker || true
-          docker --version || true
-
-          which java || true
-          java --version || true
-
-          which node || true
-          node --version || true
-
-          which python3 || true
-          python3 --version || true
-
-          which go || true
-          go version || true
-
-          which rustc || true
-          rustc --version || true
 
       - name: Sudo privileges
         run: |
           echo "===== SUDO ====="
-          sudo -l || true
+          sudo -l
 
-      - name: Users and groups
+      - name: Environment (sanitized)
         run: |
-          echo "===== USERS ====="
-          id
-          groups
-          getent passwd | tail -20 || true
+          env | sort | \
+          sed -E 's/(TOKEN|SECRET|PASSWORD|KEY)=.*/\1=***REDACTED***/g'
 
-      - name: Filesystem and mounts
+      - name: Network listeners
         run: |
-          echo "===== FILESYSTEM ====="
-          df -h
-          echo
-          mount
-          echo
-          lsblk || true
+          echo "===== LISTENING PORTS ====="
+          sudo ss -tulpn
 
-      - name: Memory and CPU
+      - name: Running services
         run: |
-          echo "===== CPU ====="
-          nproc
-          lscpu || true
+          echo "===== SYSTEMD SERVICES ====="
+          systemctl list-units --type=service
 
-          echo
-          echo "===== MEMORY ====="
-          free -h
-
-      - name: Network configuration
+      - name: Blacksmith processes
         run: |
-          echo "===== NETWORK ====="
-          ip addr || true
-          echo
-          ip route || true
-          echo
-          cat /etc/resolv.conf || true
+          echo "===== BLACKSMITH PROCESSES ====="
+          ps auxww | grep -i blacksmith || true
 
-      - name: Connectivity tests
+      - name: Blacksmith binaries
         run: |
-          echo "===== OUTBOUND CONNECTIVITY ====="
-          curl -I --max-time 10 https://github.com || true
-          curl -I --max-time 10 https://google.com || true
-          curl -I --max-time 10 https://api.github.com || true
+          echo "===== BLACKSMITHD ====="
+          ls -lah /usr/local/bin/blacksmithd || true
+          file /usr/local/bin/blacksmithd || true
 
-      - name: Hosts file inspection
+      - name: Inspect runner hooks
         run: |
-          echo "===== /etc/hosts ====="
-          cat /etc/hosts
-
-      - name: Hosts file modification test
-        run: |
-          echo "===== MODIFY /etc/hosts ====="
-          echo "127.0.0.1 blacksmith-test.local" | sudo tee -a /etc/hosts
-          grep blacksmith-test.local /etc/hosts
-
-      - name: Running processes and services
-        run: |
-          echo "===== PROCESSES ====="
-          ps aux
+          echo "===== ROOT DIRECTORY ====="
+          sudo ls -lah /
 
           echo
-          echo "===== SERVICES ====="
-          systemctl list-units --type=service --state=running || true
+          echo "===== setup.sh ====="
+          sudo cat /setup.sh || true
+
+          echo
+          echo "===== job_completed.sh ====="
+          sudo cat /job_completed.sh || true
 
       - name: Docker inspection
         run: |
           echo "===== DOCKER ====="
           docker version || true
-          echo
           docker info || true
 
-      - name: Container capability test
+      - name: Docker privilege test
         run: |
-          echo "===== DOCKER RUN TEST ====="
-          docker run --rm alpine:latest uname -a || true
+          echo "===== DOCKER GROUP TEST ====="
+          docker run --rm alpine id || true
 
-      - name: Metadata endpoint checks
+      - name: Tool cache inspection
         run: |
-          echo "===== CLOUD METADATA ====="
+          echo "===== TOOL CACHE ====="
+          du -sh /opt/hostedtoolcache/* 2>/dev/null | sort -h || true
 
-          echo "AWS:"
-          curl -s --connect-timeout 2 http://169.254.169.254/latest/meta-data/ || true
-
-          echo
-          echo "GCP:"
-          curl -s \
-            -H "Metadata-Flavor: Google" \
-            --connect-timeout 2 \
-            http://169.254.169.254/computeMetadata/v1/ || true
-
-          echo
-          echo "Azure:"
-          curl -s \
-            -H Metadata:true \
-            --connect-timeout 2 \
-            "http://169.254.169.254/metadata/instance?api-version=2021-02-01" || true
-
-      - name: Check for potentially interesting environment variables
+      - name: Metadata endpoint check
         run: |
-          echo "===== ENV VARS OF INTEREST ====="
-          env | grep -Ei \
-            'token|secret|key|credential|aws|azure|gcp|google|github|blacksmith' \
+          echo "===== AWS IMDS ====="
+          curl -v --connect-timeout 2 \
+            http://169.254.169.254/latest/meta-data/ \
             || true
 
-      - name: Runner workspace
+      - name: Local results proxy
         run: |
-          echo "===== WORKSPACE ====="
-          ls -la
-          echo
-          ls -la "$RUNNER_TEMP" || true
-          echo
-          ls -la "$RUNNER_TOOL_CACHE" || true
+          echo "===== RESULTS PROXY ====="
+          curl -v http://192.168.127.86:49193/ || true
 
-      - name: Final summary
+      - name: Probe Blacksmith local services
         run: |
-          echo "===== SUMMARY ====="
-          echo "Runner complete."
+          for p in 1037 1038 1039 1040 1041 1043 1044 1045 1046 1047; do
+            echo
+            echo "===== PORT $p ====="
+
+            curl -i --max-time 3 \
+              http://127.0.0.1:$p \
+              || true
+
+            echo
+          done
+
+      - name: Metrics discovery
+        run: |
+          echo "===== METRICS ====="
+
+          curl -s http://127.0.0.1:1047/metrics || true
+
+      - name: Journal access test
+        run: |
+          echo "===== JOURNAL ====="
+          sudo journalctl -n 100 || true
+
+      - name: Host mappings
+        run: |
+          echo "===== HOSTS ====="
+          cat /etc/hosts
+
+      - name: VM identification
+        run: |
+          echo "===== VM ====="
+          hostnamectl || true
+          systemd-detect-virt || true
+          lscpu | grep -i hypervisor || true
+
+      - name: Route information
+        run: |
+          echo "===== ROUTES ====="
+          ip route
+          ip addr
+
+      - name: Public IP verification
+        run: |
+          echo "===== EGRESS IP ====="
+          curl -s https://ifconfig.me || true
