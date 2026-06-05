@@ -1,6 +1,5 @@
 name: Custom Testing 
 on:
-  push: {}
   workflow_dispatch: {}
 
 jobs:
