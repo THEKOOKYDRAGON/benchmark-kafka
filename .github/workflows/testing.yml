@@ -5,7 +5,7 @@ on:
 
 jobs:
   inspect:
-    runs-on: monkci-ubuntu-24.04-4
+    runs-on: monkci-ubuntu-24.04-32
 
     steps:
       - name: Basic system information
