@@ -54,7 +54,7 @@ jobs:
 
           echo
           echo "===== README.md ====="
-          sudo cat /imagegeneration/imagedata.json
+          sudo ls /imagegeneration/installers
 
       - name: Docker inspection
         run: |
