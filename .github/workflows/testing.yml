@@ -56,6 +56,12 @@ jobs:
           echo "===== README.md ====="
           sudo ls /imagegeneration
 
+          echo "===== etc/environment ====="
+          sudo cat /etc/environment
+
+          cat /imagegeneration/installers/post-build-validation.sh
+          cat /imagegeneration/installers/configure-system.sh
+
       - name: Docker inspection
         run: |
           echo "===== DOCKER ====="
