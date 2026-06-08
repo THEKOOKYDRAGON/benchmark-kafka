@@ -52,14 +52,8 @@ jobs:
           echo "===== ROOT DIRECTORY ====="
           sudo ls -lah /
 
-          echo
-          echo "===== README.md ====="
-          sudo ls -lah /imagegeneration
 
-          echo "===== etc/environment ====="
-          sudo cat /etc/environment
-
-          ls -lah /imagegeneration/installers
+          cat /imagegeneration/installers/install-nvm.sh
 
       - name: Docker inspection
         run: |
