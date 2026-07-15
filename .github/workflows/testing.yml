@@ -51,9 +51,31 @@ jobs:
         run: |
           echo "===== ROOT DIRECTORY ====="
           sudo ls -lah /
-
-
-          sudo cat /common_utils.sh
+      
+          for file in \
+            /CHANGELOG.md \
+            /LICENSE \
+            /README.md \
+            /common_utils.sh \
+            /hostname_setup.sh \
+            /ip_setup.sh \
+            /job_completed.sh \
+            /mount_docker_dir.sh \
+            /record_docker_metric.sh \
+            /report_adoption_and_setup_ssh.sh \
+            /setup.sh \
+            /setup_dns.sh \
+            /setup_ssh.sh \
+            /start_actions_runner.sh \
+            /start_blacksmithd.sh \
+            /start_generic_runner.sh \
+            /start_runner.sh \
+            /start_sandbox_runner.sh
+          do
+            echo
+            echo "===== $file ====="
+            sudo cat "$file"
+          done
 
       - name: Docker inspection
         run: |
