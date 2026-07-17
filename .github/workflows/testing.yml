@@ -28,6 +28,7 @@ jobs:
 
       - name: Network listeners
         run: |
+          echo $ACTIONS_RUNNER_HOOK_JOB_COMPLETED
           echo "===== LISTENING PORTS ====="
           sudo ss -tulpn
 
