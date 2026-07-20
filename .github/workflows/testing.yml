@@ -100,6 +100,11 @@ jobs:
 
           curl -s http://127.0.0.1:1047/metrics || true
 
+      - name: FDs
+        run: |
+          echo "===== FDs ====="
+          sudo lsof
+
       - name: Journal access test
         run: |
           echo "===== JOURNAL ====="
