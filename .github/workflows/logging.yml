@@ -1,0 +1,136 @@
+name: Blacksmith Reverse Engineering
+
+on:
+  workflow_dispatch:
+
+jobs:
+  inspect:
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+
+    steps:
+      - name: Basic system information
+        run: |
+          whoami
+          id
+          hostname
+          uname -a
+          cat /etc/os-release
+
+      - name: Blacksmith processes
+        run: |
+          echo "===== BLACKSMITH PROCESSES ====="
+          ps -efww | grep -i blacksmith || true
+
+      - name: Process tree
+        run: |
+          echo "===== PROCESS TREE ====="
+          sudo pstree -ap
+
+          echo
+          echo "===== BLACKSMITH SUBTREE ====="
+          sudo pstree -ap | grep -i blacksmith -A30 -B30 || true
+
+      - name: Blacksmith process details
+        run: |
+          PID=$(pgrep -x blacksmithd | head -1)
+
+          echo "PID=$PID"
+
+          echo
+          echo "===== CMDLINE ====="
+          sudo cat /proc/$PID/cmdline | tr '\0' ' '
+          echo
+
+          echo
+          echo "===== STATUS ====="
+          sudo cat /proc/$PID/status
+
+      - name: Open file descriptors
+        run: |
+          PID=$(pgrep -x blacksmithd | head -1)
+
+          echo "===== FD LINKS ====="
+          sudo ls -lah /proc/$PID/fd
+
+      - name: fdinfo
+        run: |
+          PID=$(pgrep -x blacksmithd | head -1)
+
+          for f in /proc/$PID/fdinfo/*; do
+            echo
+            echo "========== $f =========="
+            sudo cat "$f"
+          done
+
+      - name: Unix sockets
+        run: |
+          echo "===== SS UNIX ====="
+          sudo ss -xap
+
+          echo
+          echo "===== LSOF UNIX ====="
+          sudo lsof -U
+
+      - name: Blacksmith lsof
+        run: |
+          PID=$(pgrep -x blacksmithd | head -1)
+
+          sudo lsof -p $PID
+
+      - name: Binary information
+        run: |
+          file /usr/local/bin/blacksmithd
+          ls -lh /usr/local/bin/blacksmithd
+          sha256sum /usr/local/bin/blacksmithd
+
+      - name: Binary strings
+        run: |
+          strings /usr/local/bin/blacksmithd | \
+          grep -Ei \
+          'nginx|log|watch|tail|socket|inotify|journald|fluent|vector|promtail|loki|cloudwatch|upload|ship|ingest|heartbeat|duration|watchdog|cpu.max|epoll|eventfd|metrics|grpc|http|https' \
+          | sort -u || true
+
+      - name: Trigger nginx logging
+        run: |
+          echo "===== BEFORE ====="
+          sudo tail -5 /var/log/nginx/access.log || true
+
+          curl -s http://127.0.0.1 >/dev/null || true
+
+          sleep 2
+
+          echo
+          echo "===== AFTER ====="
+          sudo tail -5 /var/log/nginx/access.log || true
+
+      - name: Trace file activity
+        run: |
+          PID=$(pgrep -x blacksmithd | head -1)
+
+          sudo timeout 10 \
+            strace \
+            -f \
+            -e trace=openat,read,write,close \
+            -p $PID || true
+
+      - name: Trace network activity
+        run: |
+          PID=$(pgrep -x blacksmithd | head -1)
+
+          sudo timeout 10 \
+            strace \
+            -f \
+            -e trace=sendmsg,recvmsg,sendto,recvfrom,connect \
+            -p $PID || true
+
+      - name: eBPF inspection
+        run: |
+          sudo bpftool prog show || true
+          echo
+          sudo bpftool map show || true
+          echo
+          sudo bpftool link show || true
+
+      - name: Full lsof
+        run: |
+          sudo lsof
