@@ -11,7 +11,7 @@ jobs:
       - name: Install debugging tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y strace bpftool binutils
+          sudo apt-get install -y strace binutils
 
       - name: Basic system information
         run: |
@@ -37,7 +37,14 @@ jobs:
 
       - name: Inspect every blacksmithd instance
         run: |
-          for PID in $(pgrep -x blacksmithd); do
+          PIDS=$(pgrep -x blacksmithd || true)
+
+          if [ -z "$PIDS" ]; then
+            echo "No blacksmithd processes found."
+            exit 0
+          fi
+
+          for PID in $PIDS; do
             echo
             echo "=================================================="
             echo "PID: $PID"
@@ -45,12 +52,12 @@ jobs:
 
             echo
             echo "CMDLINE"
-            sudo cat /proc/$PID/cmdline | tr '\0' ' '
+            sudo tr '\0' ' ' < /proc/$PID/cmdline
             echo
 
             echo
             echo "STATUS"
-            sudo cat /proc/$PID/status
+            sudo cat /proc/$PID/status || true
 
             echo
             echo "LSOF"
@@ -61,48 +68,46 @@ jobs:
             sudo ls -lah /proc/$PID/fd || true
           done
 
-      - name: Dump configuration files
+      - name: Dump Blacksmith configuration files
         run: |
           echo "===== /tmp ====="
-          sudo ls -lah /tmp
+          sudo ls -lah /tmp || true
 
           echo
           echo "===== /var/run/blacksmithd ====="
           sudo ls -lah /var/run/blacksmithd || true
 
-          for f in \
-            /tmp/*.yaml \
-            /var/run/blacksmithd/*.yaml
-          do
-            if [ -f "$f" ]; then
-              echo
-              echo "=================================================="
-              echo "$f"
-              echo "=================================================="
-              sudo cat "$f"
-            fi
+          for f in /tmp/*.yaml /var/run/blacksmithd/*.yaml; do
+            [ -f "$f" ] || continue
+
+            echo
+            echo "=================================================="
+            echo "$f"
+            echo "=================================================="
+
+            sudo cat "$f"
           done
 
       - name: Unix sockets
         run: |
           echo "===== SS UNIX ====="
-          sudo ss -xap
+          sudo ss -xap || true
 
           echo
           echo "===== LSOF UNIX ====="
-          sudo lsof -U
+          sudo lsof -U || true
 
       - name: Binary information
         run: |
-          file /usr/local/bin/blacksmithd
-          ls -lh /usr/local/bin/blacksmithd
-          sha256sum /usr/local/bin/blacksmithd
+          file /usr/local/bin/blacksmithd || true
+          ls -lh /usr/local/bin/blacksmithd || true
+          sha256sum /usr/local/bin/blacksmithd || true
 
       - name: Binary strings
         run: |
           strings /usr/local/bin/blacksmithd | \
           grep -Ei \
-          'nginx|log|watch|tail|socket|inotify|journald|fluent|vector|promtail|loki|cloudwatch|upload|ship|ingest|heartbeat|duration|watchdog|cpu.max|epoll|eventfd|metrics|grpc|http|https' \
+          'nginx|log|watch|tail|socket|inotify|journald|upload|ship|ingest|heartbeat|duration|watchdog|cpu.max|epoll|eventfd|metrics|grpc|http|https' \
           | sort -u || true
 
       - name: Trigger nginx logging
@@ -120,24 +125,19 @@ jobs:
 
       - name: Trace log daemon
         run: |
-          PID=$(pgrep -af "blacksmithd.*log_config.yaml" | awk '{print $1}')
+          PID=$(pgrep -af "blacksmithd.*log_config.yaml" | awk 'NR==1 {print $1}')
 
-          if [ -n "$PID" ]; then
-            sudo timeout 10 \
-              strace \
-              -f \
-              -e trace=openat,read,write,close,sendmsg,recvmsg \
-              -p "$PID" || true
+          if [ -z "$PID" ]; then
+            echo "Log daemon not found."
+            exit 0
           fi
 
-      - name: eBPF inspection
-        run: |
-          sudo bpftool prog show || true
-          echo
-          sudo bpftool map show || true
-          echo
-          sudo bpftool link show || true
+          sudo timeout 10 \
+            strace \
+            -f \
+            -e trace=openat,read,write,close,sendmsg,recvmsg \
+            -p "$PID" || true
 
       - name: Full lsof
         run: |
-          sudo lsof
+          sudo lsof || true
