@@ -8,6 +8,11 @@ jobs:
     runs-on: blacksmith-4vcpu-ubuntu-2404
 
     steps:
+      - name: Install debugging tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y strace bpftool binutils
+
       - name: Basic system information
         run: |
           whoami
@@ -28,38 +33,54 @@ jobs:
 
           echo
           echo "===== BLACKSMITH SUBTREE ====="
-          sudo pstree -ap | grep -i blacksmith -A30 -B30 || true
+          sudo pstree -ap | grep -i blacksmith -A40 -B20 || true
 
-      - name: Blacksmith process details
+      - name: Inspect every blacksmithd instance
         run: |
-          PID=$(pgrep -x blacksmithd | head -1)
-
-          echo "PID=$PID"
-
-          echo
-          echo "===== CMDLINE ====="
-          sudo cat /proc/$PID/cmdline | tr '\0' ' '
-          echo
-
-          echo
-          echo "===== STATUS ====="
-          sudo cat /proc/$PID/status
-
-      - name: Open file descriptors
-        run: |
-          PID=$(pgrep -x blacksmithd | head -1)
-
-          echo "===== FD LINKS ====="
-          sudo ls -lah /proc/$PID/fd
-
-      - name: fdinfo
-        run: |
-          PID=$(pgrep -x blacksmithd | head -1)
-
-          for f in /proc/$PID/fdinfo/*; do
+          for PID in $(pgrep -x blacksmithd); do
             echo
-            echo "========== $f =========="
-            sudo cat "$f"
+            echo "=================================================="
+            echo "PID: $PID"
+            echo "=================================================="
+
+            echo
+            echo "CMDLINE"
+            sudo cat /proc/$PID/cmdline | tr '\0' ' '
+            echo
+
+            echo
+            echo "STATUS"
+            sudo cat /proc/$PID/status
+
+            echo
+            echo "LSOF"
+            sudo lsof -p $PID || true
+
+            echo
+            echo "FD LINKS"
+            sudo ls -lah /proc/$PID/fd || true
+          done
+
+      - name: Dump configuration files
+        run: |
+          echo "===== /tmp ====="
+          sudo ls -lah /tmp
+
+          echo
+          echo "===== /var/run/blacksmithd ====="
+          sudo ls -lah /var/run/blacksmithd || true
+
+          for f in \
+            /tmp/*.yaml \
+            /var/run/blacksmithd/*.yaml
+          do
+            if [ -f "$f" ]; then
+              echo
+              echo "=================================================="
+              echo "$f"
+              echo "=================================================="
+              sudo cat "$f"
+            fi
           done
 
       - name: Unix sockets
@@ -70,12 +91,6 @@ jobs:
           echo
           echo "===== LSOF UNIX ====="
           sudo lsof -U
-
-      - name: Blacksmith lsof
-        run: |
-          PID=$(pgrep -x blacksmithd | head -1)
-
-          sudo lsof -p $PID
 
       - name: Binary information
         run: |
@@ -93,7 +108,7 @@ jobs:
       - name: Trigger nginx logging
         run: |
           echo "===== BEFORE ====="
-          sudo tail -5 /var/log/nginx/access.log || true
+          sudo tail -20 /var/log/nginx/access.log || true
 
           curl -s http://127.0.0.1 >/dev/null || true
 
@@ -101,27 +116,19 @@ jobs:
 
           echo
           echo "===== AFTER ====="
-          sudo tail -5 /var/log/nginx/access.log || true
+          sudo tail -20 /var/log/nginx/access.log || true
 
-      - name: Trace file activity
+      - name: Trace log daemon
         run: |
-          PID=$(pgrep -x blacksmithd | head -1)
+          PID=$(pgrep -af "blacksmithd.*log_config.yaml" | awk '{print $1}')
 
-          sudo timeout 10 \
-            strace \
-            -f \
-            -e trace=openat,read,write,close \
-            -p $PID || true
-
-      - name: Trace network activity
-        run: |
-          PID=$(pgrep -x blacksmithd | head -1)
-
-          sudo timeout 10 \
-            strace \
-            -f \
-            -e trace=sendmsg,recvmsg,sendto,recvfrom,connect \
-            -p $PID || true
+          if [ -n "$PID" ]; then
+            sudo timeout 10 \
+              strace \
+              -f \
+              -e trace=openat,read,write,close,sendmsg,recvmsg \
+              -p "$PID" || true
+          fi
 
       - name: eBPF inspection
         run: |
