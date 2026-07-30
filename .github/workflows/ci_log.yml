@@ -1,0 +1,128 @@
+name: CI Log Validation
+
+on:
+  workflow_dispatch:
+
+jobs:
+  log-validation:
+    runs-on: blacksmith-4vcpu-ubuntu-2404-4
+
+    steps:
+      - name: Environment recon
+        run: |
+          set -x
+          OUT=/tmp/recon; mkdir -p "$OUT"
+
+          # All Blacksmith-injected vars: ingestion ports, feature flags, IDs.
+          env | grep -i blacksmith | sort | tee "$OUT/blacksmith_env.txt" || true
+
+          # The daemons and how they were launched.
+          ps aux | grep -i '[b]lacksmithd' | tee "$OUT/blacksmithd_ps.txt" || true
+
+          # The config YAMLs setup.sh wrote (log_service_host/port, socket paths).
+          for f in /tmp/blacksmithd_log_config.yaml /tmp/blacksmithd_result_config.yaml; do
+            echo "=== $f ==="; sudo cat "$f" 2>/dev/null || echo "(absent)"
+          done | tee "$OUT/blacksmithd_configs.txt"
+
+          # Binary + version if it's on PATH.
+          command -v blacksmithd && blacksmithd -h 2>&1 | head -40 | tee "$OUT/blacksmithd_help.txt" || true
+
+          # The diag tree the runner logs into.
+          ls -la /home/runner/_diag/ | tee "$OUT/diag_ls.txt" || true
+          ls -la /home/runner/_diag/pages/ 2>/dev/null | tee "$OUT/pages_ls_initial.txt" || true
+
+      - name: Start inotify + fd monitors (background)
+        run: |
+          set -x
+          OUT=/tmp/recon; mkdir -p "$OUT"
+          sudo apt-get update -qq && sudo apt-get install -y -qq inotify-tools lsof
+
+          PAGES=/home/runner/_diag/pages
+          mkdir -p "$PAGES"
+
+          # (1) Every filesystem event on the pages dir, timestamped. This is what
+          # reveals the exact _FINAL filename and the moment it is created/closed.
+          nohup inotifywait -m -r --timefmt '%H:%M:%S' \
+            --format '%T %e %w%f' \
+            -e create -e modify -e close_write -e moved_to -e delete \
+            "$PAGES" > "$OUT/inotify_pages.log" 2>&1 &
+          echo $! | sudo tee /tmp/recon_inotify.pid
+
+          # (2) Poll what fds blacksmithd holds every 2s — proves whether it keeps a
+          # live page open or re-opens by path each tick.
+          nohup bash -c '
+            while true; do
+              echo "=== $(date +%H:%M:%S) ===";
+              for p in $(pgrep -f blacksmithd); do
+                echo "-- pid $p --";
+                sudo ls -l /proc/$p/fd 2>/dev/null | grep -E "pages|_diag|\.log" || true;
+              done
+              sleep 2;
+            done' > "$OUT/blacksmithd_fds.log" 2>&1 &
+          echo $! | sudo tee /tmp/recon_fdmon.pid
+
+          sleep 2  # let the monitors attach before we generate output
+
+      - name: Generate output to force page rollover
+        run: |
+          # A page rolls at 8 MB; step end also finalizes. Emit ~12 MB so we get
+          # multiple page files AND their _FINAL twins, then let it settle.
+          for i in $(seq 1 120000); do
+            printf 'recon line %06d %s\n' "$i" "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+          done
+          echo "done emitting bulk output"
+          sleep 6  # give the tailer/flush a couple of 5s cycles
+
+      - name: Snapshot pages dir (mid-job, twin naming)
+        run: |
+          set -x
+          OUT=/tmp/recon
+          PAGES=/home/runner/_diag/pages
+          # Exact filenames + sizes: you'll see  GUID_GUID_N.log  alongside
+          # GUID_GUID_N_FINAL.log (or whatever Blacksmith actually names them).
+          ls -la --time-style=full-iso "$PAGES" | tee "$OUT/pages_ls_mid.txt" || true
+          # Confirm a _FINAL file holds the combined log; show head/tail, not all.
+          for f in "$PAGES"/*_FINAL.log "$PAGES"/_FINAL.log; do
+            [ -f "$f" ] || continue
+            echo "=== $f ($(wc -c <"$f") bytes, $(wc -l <"$f") lines) ==="
+            head -3 "$f"; echo '...'; tail -3 "$f"
+          done | tee "$OUT/final_files_sample.txt" || true
+
+      - name: Sockets and host ingestion endpoints
+        run: |
+          set -x
+          OUT=/tmp/recon
+          # UDS flush sockets the daemons listen on.
+          sudo ls -la /run/user/blacksmithd-*.sock /run/blacksmithd-*.sock 2>/dev/null | tee "$OUT/sockets_ls.txt" || true
+          sudo ss -xlp 2>/dev/null | grep -i blacksmith | tee "$OUT/sockets_ss.txt" || true
+          # Host side (gvproxy gateway) — the /logs ingestion port + friends.
+          H=192.168.127.1
+          for port in "$BLACKSMITH_LOG_INGESTION_PORT" "$BLACKSMITH_RESULTS_INGESTION_PORT" "$BLACKSMITH_METRICS_HTTP_PORT"; do
+            [ -n "$port" ] || continue
+            echo "=== $H:$port ==="; timeout 2 nc -zv "$H" "$port" 2>&1 || echo "closed/filtered"
+          done | tee "$OUT/host_endpoints.txt" || true
+          ip route | tee "$OUT/ip_route.txt" || true
+
+      - name: Stop monitors and collect
+        if: always()
+        run: |
+          set -x
+          OUT=/tmp/recon
+          sudo kill "$(cat /tmp/recon_inotify.pid 2>/dev/null)" 2>/dev/null || true
+          sudo kill "$(cat /tmp/recon_fdmon.pid 2>/dev/null)" 2>/dev/null || true
+          sleep 1
+          # The headline artifacts: the timestamped event stream and the fd poll.
+          echo "===== inotify_pages.log (last 200) ====="; tail -200 "$OUT/inotify_pages.log" || true
+          echo "===== blacksmithd_fds.log (last 80) ====="; tail -80 "$OUT/blacksmithd_fds.log" || true
+          # Final full listing.
+          ls -la --time-style=full-iso /home/runner/_diag/pages/ | tee "$OUT/pages_ls_final.txt" || true
+          sudo chown -R "$(id -u):$(id -g)" "$OUT" 2>/dev/null || true
+          tar czf /tmp/blacksmith-recon.tar.gz -C /tmp recon
+
+      - name: Upload artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: blacksmith-recon
+          path: /tmp/blacksmith-recon.tar.gz
+          retention-days: 7
